@@ -211,7 +211,7 @@ def prepare_data(list_of_tuples):
     return train_features, train_labels
 
 def main():
-    path = "/Users/Derrick/DREAM-challenge/CTCF_subsample.tsv"
+    path = "CTCF_subsample.tsv"
     options=Options()
     learning_rate = options.learning_rate
     batch_size=options.batch_size
