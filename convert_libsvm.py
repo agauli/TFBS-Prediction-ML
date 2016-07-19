@@ -21,4 +21,3 @@ for line in chr_sequence_binding:
         chr_features_libsvm.write(string)
 chr_features_libsvm.close()
 
-
