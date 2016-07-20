@@ -211,7 +211,7 @@ def prepare_data(list_of_tuples):
     return train_features, train_labels
 
 def main():
-    path = "/Users/Derrick/DREAM-challenge/CTCF_subsample.tsv"
+    path = "~/biodata/chr10.tsvfinal"
     options=Options()
     learning_rate = options.learning_rate
     batch_size=options.batch_size
@@ -327,6 +327,7 @@ def main():
     print("number of 1's in the training labels: ", sum(train_labels.eval()))
     print("Area under the curve: ", metrics.roc_auc_score(y_labels,y_scores))
     fpr, tpr, thresholds = metrics.roc_curve(y_labels, y_scores, pos_label=1)
+    """
     plt.figure()
     plt.plot(fpr,tpr)
     plt.xlim([-0.1,1.05])
@@ -335,6 +336,7 @@ def main():
     plt.ylabel('True Positive Rate')
     plt.title('ROC Curve')
     plt.show()
+    """
 
 
 
