@@ -9,15 +9,18 @@ from pandas import DataFrame as df
 from sklearn import metrics
 import matplotlib.pyplot as plt
 import time
+import multiprocessing
+import Queue
 
 np.random.seed(3)
 
 class Options(object):
+    num_workers=4
+    chunksize=10000
     learning_rate=0.5
-    batch_size = 16
+    batch_size = 1000
     max_epochs = 300
-    test_portion = 0.2
-    validation_portion = 0.1
+    validation_portion = 0.2
     k=6
 
 class LogisticRegression(object):
@@ -134,7 +137,8 @@ def generate_mini_batch_indices(total_num_sequences, num_batches):
     return list_of_indices
 
 def get_data_reader_iterator(path):
-    reader = pandas.read_table(path, sep='\t',chunksize=1000)
+    options=Options()
+    reader = pandas.read_table(path, sep='\t',chunksize=options.chunksize)
     return reader
 
 def load_data(data):
@@ -154,12 +158,12 @@ def load_data(data):
     cell_type_dict['HeLa-S3'] = map(labels_to_int_map, data['HeLa-S3']) # 4 bounds
     cell_type_dict['H1-hESC'] = map(labels_to_int_map, data['H1-hESC']) # 0 bounds
     cell_type_dict['A549'] = map(labels_to_int_map, data['A549']) # 5 bounds
-    del  data
+    del data
     return kmer_counts, cell_type_dict
 
 def split_data(features, labels):
     # returns a list of tuples (features, labels)
-    print("Splitting data into train, validation, test")
+    print("Splitting data into train, validation")
     options = Options()
 
     data=zip(features,labels)
@@ -171,20 +175,16 @@ def split_data(features, labels):
     # permuting the data
     data=[data[i] for i in random_data_indices]
 
-    num_testing_sequences = int(num_sequences*options.test_portion)
-    num_train_sequences = num_sequences - num_testing_sequences
-    num_validation_sequences = int(num_train_sequences * options.validation_portion)
-    num_train_sequences = num_train_sequences - num_validation_sequences
+    num_validation_sequences = int(num_sequences*options.validation_portion)
+    num_train_sequences = num_sequences - num_validation_sequences
 
     print("num train sequences: %d"%num_train_sequences)
     print("num validation sequences: %d"%num_validation_sequences)
-    print("num test sequences: %d"%num_testing_sequences)
 
     train = data[:num_train_sequences]
-    validation = data[num_train_sequences:num_train_sequences+num_validation_sequences]
-    test = data[num_train_sequences+num_validation_sequences:]
+    validation = data[num_train_sequences:]
 
-    return train, validation, test
+    return train, validation
 
 def prepare_data(list_of_tuples):
     def share_data(data_xy, borrow=True):
@@ -214,143 +214,169 @@ def prepare_data(list_of_tuples):
     train_features, train_labels = share_data(list_of_tuples)
     return train_features, train_labels
 
+
+class myThread(multiprocessing.Process):
+    def __init__(self, threadID, data_iterator,queue):
+        multiprocessing.Process.__init__(self)
+        self.threadID = threadID
+        self.data_iterator = data_iterator
+        self.queue = queue
+
+    def run(self):
+        options = Options()
+        for mini_batch_number, data in enumerate(self.data_iterator):
+            if mini_batch_number % options.num_workers == self.threadID:
+                print("thread %d mini batch number: %d" % (self.threadID,mini_batch_number))
+                self.queue.put(data)
+
+
 def main():
+    options=Options
     path = "~/biodata/chr10.tsvfinal"
-    options=Options()
-    learning_rate = options.learning_rate
-    batch_size=options.batch_size
-    dim_features = 4 ** options.k
+    threads = []
+    manager = multiprocessing.Manager()
+    queue = manager.Queue(maxsize=6)
 
-    data_iterator = get_data_reader_iterator(path)
-    for data in data_iterator:
-        kmer_counts, cell_type_dict = load_data(data)
-        train, validation, test = split_data(kmer_counts,cell_type_dict['K562'])
+    data_iterator=[]
+    for i in range(options.num_workers):
+        data_iterator.append(get_data_reader_iterator(path))
 
+    for threadID in range(options.num_workers):
+        thread = myThread(threadID, data_iterator[threadID],queue)
+        thread.daemon=True
+        threads.append(thread)
+        thread.start()
 
-        train_features, train_labels = prepare_data(train)
-        validation_features, validation_labels = prepare_data(validation)
-        testing_features, testing_labels = prepare_data(test)
-
-        num_train_sequences = train_features.get_value(borrow=True).shape[0]
-        num_validation_sequences = validation_features.get_value(borrow=True).shape[0]
-        num_testing_sequences = testing_features.get_value(borrow=True).shape[0]
-        num_sequences = num_testing_sequences + num_validation_sequences + num_testing_sequences
-
-        num_train_batches =num_train_sequences // batch_size
-        num_validation_batches = num_validation_sequences // batch_size
-        num_testing_batches = num_testing_sequences // batch_size
-
-        print("%d training sequences "%num_train_sequences)
-        print("%d validation sequences " %num_validation_sequences)
-        print("%d test sequences "% num_testing_sequences)
-
-        # Symbolic Inputs
-        x = T.matrix('x')
-        y = T.ivector('y')
-        index = T.lscalar()
-
-        classifier = LogisticRegression(input=x, n_in= dim_features, n_out=2)
-        cost = classifier.negative_log_likelihood(y)
-        g_W = T.grad(cost=cost, wrt=classifier.W)
-        g_b = T.grad(cost=cost, wrt=classifier.b)
-
-        updates = [(classifier.W, classifier.W - learning_rate * g_W),
-                   (classifier.b, classifier.b - learning_rate * g_b)]
-
-        train_model = theano.function(
-            inputs=[index],
-            outputs=[cost],
-            updates=updates,
-            givens={
-                x: train_features[batch_size * index : batch_size * (index+1)],
-                y: train_labels[batch_size * index : batch_size * (index+1)]
-            }
-        )
-
-        validation_model = theano.function(
-            inputs=[index],
-            outputs=classifier.errors(y),
-            givens={
-                x: validation_features[index * batch_size: (index + 1) * batch_size],
-                y: validation_labels[index * batch_size: (index + 1) * batch_size]
-            }
-        )
-
-        test_model = theano.function(
-            inputs=[index],
-            outputs=classifier.errors(y),
-            givens={
-                x: testing_features[index * batch_size: (index + 1) * batch_size],
-                y: testing_labels[index * batch_size: (index + 1) * batch_size]
-            }
-        )
-
-        scores = theano.function(
-            inputs=[],
-            outputs=classifier.p_y_given_x,
-            givens={
-                x:testing_features
-            }
-        )
-
-
-        epoch = 0
-        max_epochs = options.max_epochs
+    while True:
         try:
-            start_time = time.time()
-            while epoch < max_epochs:
-                epoch += 1
-                train_sequences_seen = validation_sequcnes_seen = testing_sequences_seen = 0
-                cost=0
-                for i in range(num_train_batches):
-                    cost += train_model(i)[0]
-                if epoch % 50 == 0:
-                    print("Epoch %d cost %.5f" %(epoch,cost))
-                """
-                num_validation_errors = 0
-                for i in range(num_validation_batches):
-                    num_validation_errors += validation_model(i)
-                validation_accuracy = 1- num_validation_errors/num_validation_sequences
-                print("Epoch %d validation accuracy: %.4f" %(epoch,validation_accuracy))
-                num_testing_errors = 0
-                for i in range(num_testing_batches):
-                    num_testing_errors += test_model(i)
-                testing_accuracy = 1-num_testing_errors/num_testing_sequences
-                print("Epoch %d testing accuracy: %.4f" %(epoch,testing_accuracy))
-                y_scores = scores()[:, 1]
-                y_labels = testing_labels.eval()
-                print("Area under the curve: ", metrics.roc_auc_score(y_labels, y_scores))
-                """
-        except KeyboardInterrupt:
-            print("\nTraining interrupted")
-        total_time = time.time()-start_time
-        print("total time :",total_time)
-        num_testing_errors = 0
-        for i in range(num_testing_batches):
-            num_testing_errors += test_model(i)
-        testing_accuracy = 1 - num_testing_errors / num_testing_sequences
-        print("Final testing accuracy: %.4f" % testing_accuracy)
-        #print("Scores for the testing set:", scores()[:,1])
-
-        y_scores = scores()[:,1]
-        y_labels = testing_labels.eval()
-        print("number of 1's in the testing labels: ", sum(y_labels))
-        print("number of 1's in the training labels: ", sum(train_labels.eval()))
-        try:
-            print("Area under the curve: ", metrics.roc_auc_score(y_labels,y_scores))
+            print("queue size ", queue.qsize())
+            data = queue.get(block=False)
+            train_model(data)
         except:
             pass
-        #fpr, tpr, thresholds = metrics.roc_curve(y_labels, y_scores, pos_label=1)
-        """
-        plt.figure()
-        plt.plot(fpr,tpr)
-        plt.xlim([-0.1,1.05])
-        plt.ylim([-0.1,1.05])
-        plt.xlabel('False Positive Rate')
-        plt.ylabel('True Positive Rate')
-        plt.title('ROC Curve')
-        plt.show()
-        """
+
+    for t in threads:
+        t.join()
+
+    print("Finished all threads")
+
+
+def train_model(data):
+    options = Options()
+    learning_rate = options.learning_rate
+    batch_size = options.batch_size
+    dim_features = 4 ** options.k
+
+    kmer_counts, cell_type_dict = load_data(data)
+    train, validation = split_data(kmer_counts,cell_type_dict['K562'])
+
+    train_features, train_labels = prepare_data(train)
+    validation_features, validation_labels = prepare_data(validation)
+
+    num_train_sequences = train_features.get_value(borrow=True).shape[0]
+    num_validation_sequences = validation_features.get_value(borrow=True).shape[0]
+    num_sequences = num_train_sequences + num_validation_sequences
+
+    num_train_batches =num_train_sequences // batch_size
+    num_validation_batches = num_validation_sequences // batch_size
+
+    print("%d training sequences "%num_train_sequences)
+    print("%d validation sequences " %num_validation_sequences)
+
+    # Symbolic Inputs
+    x = T.matrix('x')
+    y = T.ivector('y')
+    index = T.lscalar()
+
+    classifier = LogisticRegression(input=x, n_in= dim_features, n_out=2)
+    cost = classifier.negative_log_likelihood(y)
+    g_W = T.grad(cost=cost, wrt=classifier.W)
+    g_b = T.grad(cost=cost, wrt=classifier.b)
+
+    updates = [(classifier.W, classifier.W - learning_rate * g_W),
+               (classifier.b, classifier.b - learning_rate * g_b)]
+
+    train_model = theano.function(
+        inputs=[index],
+        outputs=[cost],
+        updates=updates,
+        givens={
+            x: train_features[batch_size * index : batch_size * (index+1)],
+            y: train_labels[batch_size * index : batch_size * (index+1)]
+        }
+    )
+
+    validation_model = theano.function(
+        inputs=[index],
+        outputs=classifier.errors(y),
+        givens={
+            x: validation_features[index * batch_size: (index + 1) * batch_size],
+            y: validation_labels[index * batch_size: (index + 1) * batch_size]
+        }
+    )
+    """
+    test_model = theano.function(
+        inputs=[index],
+        outputs=classifier.errors(y),
+        givens={
+            x: testing_features[index * batch_size: (index + 1) * batch_size],
+            y: testing_labels[index * batch_size: (index + 1) * batch_size]
+        }
+    )
+    """
+    scores = theano.function(
+        inputs=[],
+        outputs=classifier.p_y_given_x,
+        givens={
+            x:validation_features
+        }
+    )
+
+
+    epoch = 0
+    max_epochs = options.max_epochs
+    try:
+        start_time = time.time()
+        while epoch < max_epochs:
+            epoch += 1
+            train_sequences_seen = validation_sequcnes_seen = testing_sequences_seen = 0
+            cost=0
+            for i in range(num_train_batches):
+                cost += train_model(i)[0]
+            if epoch % 50 == 0:
+                print("Epoch %d cost %.5f" %(epoch,cost))
+
+    except KeyboardInterrupt:
+        print("\nTraining interrupted")
+    total_time = time.time()-start_time
+    print("total time :",total_time)
+    num_validation_errors = 0
+    for i in range(num_validation_batches):
+        num_validation_errors += validation_model(i)
+    validation_accuracy = 1 - num_validation_errors / num_validation_sequences
+    print("Validation accuracy: %.8f" % validation_accuracy)
+    #print("Scores for the testing set:", scores()[:,1])
+
+    y_scores = scores()[:,1]
+    y_labels = validation_labels.eval()
+
+    print("number of 1's in the training labels: ", sum(train_labels.eval()))
+    print("number of 1's in the validation labels: ", sum(y_labels))
+    try:
+        print("Area under the curve: %.5f \n" %metrics.roc_auc_score(y_labels,y_scores))
+    except:
+        pass
+    #fpr, tpr, thresholds = metrics.roc_curve(y_labels, y_scores, pos_label=1)
+    """
+    plt.figure()
+    plt.plot(fpr,tpr)
+    plt.xlim([-0.1,1.05])
+    plt.ylim([-0.1,1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('ROC Curve')
+    plt.show()
+    """
 
 
 
