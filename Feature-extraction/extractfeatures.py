@@ -51,7 +51,7 @@ def countkmer(sequence, k):
 def convert(k):
     chr_sequence_binding = open(str(sys.argv[1]), 'r')
     chr_features_binding = open("%s" % str(sys.argv[1]).strip(".tsv")\
-                                + "_features.tsv", 'w')
+                                + ".tsvf", 'w')
     header = "sequence\t"
     kmers = createkmers(k)
     for prod in kmers:
@@ -72,3 +72,4 @@ def convert(k):
 
 
 convert(6)
+

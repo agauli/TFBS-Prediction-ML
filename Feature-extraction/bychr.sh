@@ -1,5 +1,4 @@
 a=$1
-
 abs=$(pwd)
 mkdir -p $abs/features
 mv $a $abs/features
@@ -10,12 +9,28 @@ cut -f 1-3 chr > $absheader/header1.txt
 cut -f 4- chr > $absheader/header2.txt
 mv $abs/features/$a $abs/
 rm $abs/features/chr
-
 abs=$abs/features
+
+
+for tospl in *
+do
+	echo "#!/bin/bash
+#$ -o /u/home/a/agauli/joblogs
+#$ -e /u/home/a/agauli/joblogs
+#$ -m a
+#$ -l h_data=16G,highp,h_rt=24:00:00
+	gzip $tospl
+" > $gzip$tospl.sh
+	qsub $gzip$tospl.sh
+	rm $gzip$tospl.sh
+done
+
+
+
 
 for file in *
 do
-        if test -f "$file"
+  	if test -f "$file"
         then
             	echo "#!/bin/bash
 #$ -o /u/home/a/agauli/joblogs
@@ -34,12 +49,14 @@ mv $absheader/$file.tsv $abs/$file.tsv
 module load python
 python /u/home/a/agauli/project-ernst/challengedata/extractfeatures.py $abs/$file.tsv
 paste $abs/$file.tsva $abs/$file.tsvf $abs/$file.tsvb > $abs/$file.tsvfinal
+				
+
                 echo "Finished pasting"
                 rm $abs/$file.tsva
                 rm $abs/$file.tsvb
                 rm $abs/$file.tsvf
-                rm $abs/$file.tsv" > $file.sh
-                qsub $file.sh
+                rm $abs/$file.tsv" > $1_$file.sh
+                qsub $1_$file.sh
+                rm $1_$file.sh
         fi
 done
-echo "File Conversion started..check features folder"
