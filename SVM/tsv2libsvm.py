@@ -49,20 +49,45 @@ reader = csv.reader(i, delimiter = '\t')
 if skip_headers:
         headers = reader.next()
 
+bound = 0
+unbound = 0
+ambig = 0
+null = 0
+nullunbound = 0
+nullbound = 0
+nullamb = 0
+
 for line in reader:
         runindex = label_index+4096
         del line[0:4]
         label = line.pop(runindex)
-	if label == "U":
+        if label == "U":
+                unbound+=1
                 labelnum = "0"
         elif label == "B":
+                bound += 1
                 labelnum = "1"
-        else:
-		labelnum = "2"
+        elif label == "A":
+                ambig += 1
+                continue
         del line[4096:]
         new_line = construct_line( labelnum, line )
-	print len(new_line)
-	if len(new_line) == 2:
-		continue
+        if len(new_line) == 2:
+                null+=1
+                if labelnum == "0":
+                        nullunbound +=1
+                elif labelnum == "1":
+                        nullbound += 1
+                elif label == "A":
+                        nullamb +=1
+                continue
         o.write( new_line )
-	runindex = label_index
+        runindex = label_index
+print( "bound :"+ str(bound))
+print( "unbound :"+ str(unbound))
+print( "ambig :"+ str(ambig))
+print( "null: "+ str(null))
+print( "nullunbound: "+ str(nullunbound))
+print( "nullbound: "+ str(nullbound))
+print( "nullamb: "+ str(nullamb))
+
