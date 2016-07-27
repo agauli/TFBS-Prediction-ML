@@ -57,6 +57,7 @@ nullunbound = 0
 nullbound = 0
 nullamb = 0
 
+
 for line in reader:
         runindex = label_index+4096
         del line[0:4]
@@ -83,11 +84,8 @@ for line in reader:
                 continue
         o.write( new_line )
         runindex = label_index
-print( "bound :"+ str(bound))
-print( "unbound :"+ str(unbound))
-print( "ambig :"+ str(ambig))
-print( "null: "+ str(null))
-print( "nullunbound: "+ str(nullunbound))
-print( "nullbound: "+ str(nullbound))
-print( "nullamb: "+ str(nullamb))
 
+
+stat = open( output_file + "stat", 'wb' )
+stat.write("chr\tbound\tunbound\tambig\tnull\tnullunbound\tnullbound\tnullamb\n")
+stat.write(output_file +"\t"+ str(bound)+"\t"+ str(unbound) + "\t" + str(ambig) + "\t" + str(null) + "\t" + str(nullunbound) + "\t" + str(nullbound) + "\t" + str(nullamb) + "\n")
