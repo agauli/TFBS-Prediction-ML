@@ -1,7 +1,6 @@
 # TFBS-Prediction-ML
 
-Predicting in-vivo transcription factor binding sites (TFBS) from DNA sequence, built for the
-ENCODE-DREAM In-vivo TFBS Prediction Challenge.
+Predicting in-vivo transcription factor binding sites (TFBS) from DNA sequence. 
 
 This was an internship project from around 2016. It is kept as an archive and is not actively
 maintained.
